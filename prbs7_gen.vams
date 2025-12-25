@@ -1,0 +1,30 @@
+`include "constants.vams"
+`include "disciplines.vams"
+
+module prbs7_gen(clk, out);
+    input clk;
+    output out;
+    voltage clk, out;
+    
+    // Seed must be between 1 and 127 (cannot be 0)
+    parameter integer seed = 1 from [1:127]; 
+    integer x, b, mask;
+
+    analog begin
+        @(initial_step) begin
+            mask = (1 << 7) - 1; // 7-bit mask (0x7F)
+            x = seed & mask;
+        end
+
+        // Trigger on positive clock edge (0.5V threshold)
+        @(cross(V(clk) - 0.5, +1)) begin
+            // PRBS7 Taps: bits 7 and 6 (0-indexed: 6 and 5)
+            b = ((x >> 6) ^ (x >> 5)) & 1;
+            // Shift left and insert new bit at LSB
+            x = ((x << 1) & mask) | b;
+        end
+
+        // Transition filter for analog convergence
+        V(out) <+ transition(b ? 1.0 : 0.0, 0, 80p, 80p);
+    end
+endmodule

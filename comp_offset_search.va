@@ -1,0 +1,63 @@
+// Verilog-A model for Comparator Offset Search with Completion Flag
+module comp_offset_search(ck, _ck, op, on, p, n, done);
+
+    input ck, _ck, op, on;
+    output p, n, done;
+    voltage ck, _ck, op, on, p, n, done;
+
+    // Parameters
+    parameter real cm = 0.4;            // Common mode for 0.8V supply
+    parameter real target_res = 100u;   // Stop when window < 100uV
+    
+    // Internal Variables
+    real max_range, min_range, v_diff; 
+    real vp_out, vn_out, is_done;
+    integer cycle_count;
+
+    analog begin
+        @(initial_step) begin
+            cycle_count = 0;
+            is_done = 0;
+            max_range = 0.1;           // Start search at +/- 100mV
+            min_range = -0.1;          
+            v_diff = 0.0;
+            
+            vp_out = cm + 0.5 * v_diff;
+            vn_out = cm - 0.5 * v_diff;
+        end
+
+        // Trigger on falling edge of clock
+        @(cross(V(ck, _ck), -1)) begin
+            
+            // Only search if we haven't reached target precision
+            if (!is_done) begin
+                cycle_count = cycle_count + 1;
+
+                // Wait for startup (4 cycles) before starting binary search
+                if (cycle_count > 4) begin
+                    
+                    // Binary Search Logic
+                    if (V(op, on) >= 0) max_range = v_diff; 
+                    else                min_range = v_diff; 
+
+                    v_diff = min_range + 0.5 * (max_range - min_range);
+                    
+                    // Check if we are finished
+                    if ((max_range - min_range) < target_res) begin
+                        is_done = 1.0;
+                        // Optional: $display("Offset found: %f V at time %g", v_diff, $abstime);
+                    end
+
+                    // Update outputs
+                    vp_out = cm + 0.5 * v_diff;
+                    vn_out = cm - 0.5 * v_diff;
+                end
+            end
+        end
+
+        // Contribution statements
+        V(p) <+ vp_out;
+        V(n) <+ vn_out;
+        V(done) <+ is_done; // 0V = searching, 1V = finished
+    end
+endmodule

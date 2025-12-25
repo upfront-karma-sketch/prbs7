@@ -1,0 +1,56 @@
+`include "disciplines.vams"
+
+module comp_characterizer(ck, _ck, op, on, p, n, done, ck_rise_ns, setup_err, hold_err);
+    input ck, _ck, op, on;
+    output p, n, done, ck_rise_ns, setup_err, hold_err;
+    voltage ck, _ck, op, on, p, n, done, ck_rise_ns, setup_err, hold_err;
+
+    parameter real vdd = 0.8;
+    parameter real vcm = 0.4;
+
+    real v_off, max_r, min_r, t_rise_pre, t_rise_val;
+    real last_ck, last_d;
+    integer cnt, is_done, s_err, h_err;
+
+    analog begin
+        @(initial_step) begin
+            max_r = 0.1; min_r = -0.1; v_off = 0;
+            is_done = 0; cnt = 0;
+        end
+
+        // Binary Search Logic (Phase 1)
+        @(cross(V(ck), -1)) begin
+            if (!is_done) begin
+                cnt = cnt + 1;
+                if (cnt > 4) begin
+                    if (V(op, on) >= 0) max_r = v_off;
+                    else                min_r = v_off;
+                    v_off = min_r + 0.5 * (max_r - min_r);
+                    if ((max_r - min_r) < 100u) is_done = 1;
+                end
+            end
+        end
+
+        // 20/80 Rise Time Monitor
+        @(cross(V(ck)-(0.2*vdd), 1)) t_rise_pre = $realtime;
+        @(cross(V(ck)-(0.8*vdd), 1)) t_rise_val = ($realtime - t_rise_pre)*1e9;
+
+        // Timing Violation Monitor (300p Setup / 5p Hold)
+        @(cross(V(ck)-(0.5*vdd), 1)) begin
+            last_ck = $realtime;
+            s_err = (is_done && ($realtime - last_d < 300p)) ? 1 : 0;
+        end
+        @(cross(V(p,n), 0)) begin
+            last_d = $realtime;
+            h_err = (is_done && ($realtime - last_ck < 5p)) ? 1 : 0;
+        end
+
+        // Output Drivers
+        V(p) <+ vcm + 0.5 * v_off;
+        V(n) <+ vcm - 0.5 * v_off;
+        V(done) <+ transition(is_done ? vdd : 0, 0, 10p);
+        V(ck_rise_ns) <+ transition(t_rise_val, 0, 10p);
+        V(setup_err) <+ transition(s_err ? vdd : 0, 0, 10p, 50p);
+        V(hold_err) <+ transition(h_err ? vdd : 0, 0, 10p, 50p);
+    end
+endmodule

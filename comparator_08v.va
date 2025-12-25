@@ -1,0 +1,32 @@
+`include "disciplines.vams"
+
+module comparator_08v(clk, clk_n, inp, inn, outp, outn);
+    input clk, clk_n, inp, inn;
+    output outp, outn;
+    voltage clk, clk_n, inp, inn, outp, outn;
+
+    // Parameters
+    parameter real vdd = 0.8;
+    parameter real v_offset = 0.005; // 5mV built-in offset to test the search engine
+    parameter real td = 50p;         // 50ps propagation delay
+
+    real v_out_p, v_out_n;
+
+    analog begin
+        // Trigger on the rising edge of the differential clock
+        @(cross(V(clk, clk_n), 1)) begin
+            // If (Input + Offset) > 0, output High
+            if (V(inp, inn) + v_offset > 0) begin
+                v_out_p = vdd;
+                v_out_n = 0;
+            end else begin
+                v_out_p = 0;
+                v_out_n = vdd;
+            end
+        end
+
+        // Use transition to simulate real-world rise/fall times
+        V(outp) <+ transition(v_out_p, td, 20p);
+        V(outn) <+ transition(v_out_n, td, 20p);
+    end
+endmodule

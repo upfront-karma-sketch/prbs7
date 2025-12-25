@@ -1,0 +1,40 @@
+`include "constants.vams"
+`include "disciplines.vams"
+
+// Helper: Serial to 8-bit Parallel Converter
+module sipo_8b(clk, si, po);
+    input clk, si; output [7:0] po;
+    voltage clk, si; voltage [7:0] po;
+    integer regs[0:7]; integer i;
+    analog begin
+        @(cross(V(clk) - 0.5, +1)) begin
+            for (i=7; i>0; i=i-1) regs[i] = regs[i-1];
+            regs[0] = (V(si) > 0.5) ? 1 : 0;
+        end
+        generate i (0, 7) begin
+            V(po[i]) <+ transition(regs[i], 0, 50p);
+        end
+    end
+endmodule
+
+// Helper: 1GHz Clock Generator
+module clk_gen(clk);
+    output clk; voltage clk;
+    analog V(clk) <+ (sin(2 * `M_PI * 1e9 * $abstime) > 0) ? 1.0 : 0.0;
+endmodule
+
+// Top Level Testbench
+module prbs7_tb;
+    wire clk, raw_data, checked_data, err;
+    wire [7:0] parallel_bus;
+    parameter integer inject_error = 0; // Set to 1 to force a failure
+
+    clk_gen i_clk(clk);
+    prbs7_gen #(.seed(7'h5A)) i_gen(clk, raw_data);
+
+    // Error Injector
+    analog V(checked_data) <+ (inject_error > 0.5) ? (1.0 - V(raw_data)) : V(raw_data);
+
+    sipo_8b i_sipo(clk, checked_data, parallel_bus);
+    prbs7_check8b i_checker(clk, parallel_bus, err);
+endmodule

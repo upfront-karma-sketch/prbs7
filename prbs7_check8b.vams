@@ -1,0 +1,37 @@
+`include "constants.vams"
+`include "disciplines.vams"
+
+module prbs7_check8b(clk, in, err);
+    input clk;
+    input [7:0] in;
+    output err;
+    voltage clk, err;
+    voltage [7:0] in;
+
+    integer e, tar, i;
+    integer t[0:15]; // History buffer for current and previous byte
+
+    analog begin
+        @(cross(V(clk) - 0.5, +1)) begin
+            // 1. Move previous 8 bits to history slots 0-7
+            for (i = 0; i < 8; i = i + 1) begin
+                t[i] = t[i + 8];
+            end
+
+            // 2. Sample current 8-bit input bus into slots 8-15
+            for (i = 0; i < 8; i = i + 1) begin
+                t[i + 8] = (V(in[i]) > 0.5) ? 1 : 0;
+            end
+
+            // 3. Verify PRBS7 sequence: bit[n] = bit[n-7] ^ bit[n-6]
+            e = 0;
+            for (i = 8; i < 16; i = i + 1) begin
+                tar = t[i-7] ^ t[i-6];
+                if (t[i] != tar) e = 1;
+            end
+        end
+
+        // Signal error if mismatch detected
+        V(err) <+ transition(e ? 1.0 : 0.0, 0, 50p, 50p);
+    end
+endmodule

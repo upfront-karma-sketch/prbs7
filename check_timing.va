@@ -1,0 +1,82 @@
+`include "disciplines.vams"
+
+module check_timing(d, ck, ck_rise_ns, setup_violation, hold_violation, pw_violation);
+    input d, ck;
+    output ck_rise_ns, setup_violation, hold_violation, pw_violation;
+    voltage d, ck, ck_rise_ns, setup_violation, hold_violation, pw_violation;
+
+    // Timing Specifications
+    parameter real vdd = 0.8;
+    parameter real t_setup = 300p;
+    parameter real t_hold  = 5p;
+    parameter real t_pw_min = 100p;
+
+    // Internal Variables
+    real v_ck_rise_ns, v_ck_rise_pre;
+    real last_ck_rise, last_ck_fall, last_d_edge;
+    real v_setup_fail, v_hold_fail, v_pw_fail;
+    real flag_rise_tracking;
+
+    analog begin
+        @(initial_step) begin
+            v_ck_rise_ns = 0;
+            last_ck_rise = -1.0;
+            last_ck_fall = -1.0;
+            last_d_edge  = -1.0;
+            flag_rise_tracking = 0;
+        end
+
+        // --- 1. ANALOG RISE TIME (20/80 Logic) ---
+        // Start measuring when clock hits 20%
+        @(cross(V(ck) - (0.2 * vdd), 1)) begin
+            v_ck_rise_pre = $realtime;
+            flag_rise_tracking = 1;
+        end
+
+        // Stop measuring when clock hits 80%
+        @(cross(V(ck) - (0.8 * vdd), 1)) begin
+            if (flag_rise_tracking == 1) begin
+                v_ck_rise_ns = ($realtime - v_ck_rise_pre) * 1e9; // Convert to ns
+            end
+            flag_rise_tracking = 0;
+        end
+
+        // --- 2. DIGITAL TIMING (50% Midpoint) ---
+        @(cross(V(ck) - (0.5 * vdd), 1)) begin
+            // Setup Check: Look back at last Data edge
+            if (last_d_edge > 0 && ($realtime - last_d_edge) < t_setup) v_setup_fail = vdd;
+            else v_setup_fail = 0;
+
+            // Pulse Width Check (Low Time)
+            if (last_ck_fall > 0 && ($realtime - last_ck_fall) < t_pw_min) v_pw_fail = vdd;
+            else v_pw_fail = 0;
+
+            last_ck_rise = $realtime;
+            v_hold_fail = 0; 
+        end
+
+        @(cross(V(ck) - (0.5 * vdd), -1)) begin
+            // Pulse Width Check (High Time)
+            if (last_ck_rise > 0 && ($realtime - last_ck_rise) < t_pw_min) v_pw_fail = vdd;
+            else v_pw_fail = 0;
+
+            last_ck_fall = $realtime;
+        end
+
+        // --- 3. DATA MONITOR ---
+        @(cross(V(d) - (0.5 * vdd), 0)) begin
+            last_d_edge = $realtime;
+
+            // Hold Check: Did data move too soon after clock?
+            if (last_ck_rise > 0 && ($realtime - last_ck_rise) < t_hold) begin
+                v_hold_fail = vdd;
+            end
+        end
+
+        // --- 4. OUTPUTS ---
+        V(ck_rise_ns)      <+ transition(v_ck_rise_ns, 0, 10p);
+        V(setup_violation) <+ transition(v_setup_fail, 0, 10p, 50p);
+        V(hold_violation)  <+ transition(v_hold_fail, 0, 10p, 50p);
+        V(pw_violation)    <+ transition(v_pw_fail, 0, 10p, 50p);
+    end
+endmodule
